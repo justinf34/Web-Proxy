@@ -57,56 +57,99 @@ int main(int argc, char const *argv[])
 		memset(&server_rqstBuffer, 0, RQST_SIZE);
 
 		int totalMsg = 0;
-
-		bytesRecv = recv(clientSock, (char *)&client_rqstBuffer, RQST_SIZE, 0);
-		if (bytesRecv < 1)
+		while ((bytesRecv = recv(clientSock, (char *)&client_rqstBuffer, RQST_SIZE, 0)) > 0)
 		{
-			cout << "Did not receive any message" << endl;
-			exit(1);
+			if (bytesRecv < 1)
+			{
+				cout << "Did not receive any message" << endl;
+				exit(1);
+			}
+
+			//----------- Parsing Client Request -----------//
+
+			char tmp[RQST_SIZE];
+			strcpy(tmp, client_rqstBuffer);
+
+			cout << "Client request:" << endl
+				 << client_rqstBuffer << endl;
+
+			char *addr = strtok(strstr(tmp, "Host: ") + 6, "\r\n");
+
+			//---------- Sending/Receiving from Server ----------//
+
+			cout << "Creating a client socket to connect to " << addr << endl;
+			int sendSock;
+			initSock(sendSock, 80, addr, 1); // Creating a sender socket
+
+			strcpy(server_rqstBuffer, client_rqstBuffer);
+			bytesSent = send(sendSock, server_rqstBuffer, HTML_SIZE, 0);
+			if (bytesSent < 0)
+			{
+				cout << "Could not pass on request to host" << endl;
+				exit(1);
+			}
+
+			memset(&svr_resBuffer, 0, HTML_SIZE);
+			while ((bytesRecv = recv(sendSock, svr_resBuffer, HTML_SIZE, 0)) > 0)
+			{
+				if (bytesRecv < 1)
+				{
+					cout << "Did not get a response from the server" << endl;
+					exit(0);
+				}
+
+				cout << addr << " responded with:" << endl
+					 << svr_resBuffer << endl;
+
+				//---------- Editing the response ----------//
+				//	Get the byte size of the message body
+				//	bytesRecv - 390, should point back the start of the message body
+				char editRes[bytesRecv];
+				strcpy(editRes, svr_resBuffer);
+
+				char *msgBody = strstr(editRes, "\r\n\r\n") + 4;
+				cout << "The message body is:" << endl
+					 << msgBody << endl;
+
+				// Floppy -> Trolly
+				char *ptr;
+				char trolly[7] = "Trolly";
+				while (ptr = strstr(msgBody, "Floppy"))
+				{
+					int i = 0;
+					for (i = 0; i < 6; i++)
+					{
+						*(ptr + i) = *(trolly + i);
+					}
+				}
+
+				// Italy -> Japan
+				char japan[6] = "Japan";
+				while (ptr = strstr(msgBody, "Italy"))
+				{
+					int i = 0;
+					for (i = 0; i < 5; i++)
+					{
+						*(ptr + i) = *(japan + i);
+					}
+				}
+
+				//---------- Sending the message back to client ----------//
+				bytesSent = send(clientSock, editRes, HTML_SIZE, 0);
+
+				if (bytesSent < 1)
+				{
+					cout << "Couldn't send message to client" << endl;
+					close(clientSock);
+					exit(0);
+				}
+				memset(&svr_resBuffer, 0, HTML_SIZE);
+			}
+
+			memset(&client_rqstBuffer, 0, RQST_SIZE);
+			memset(&server_rqstBuffer, 0, RQST_SIZE);
 		}
 
-		//----------- Parsing Client Request -----------//
-
-		char tmp[RQST_SIZE];
-		strcpy(tmp, client_rqstBuffer);
-
-		cout << "Client request:" << endl
-			 << client_rqstBuffer << endl;
-
-		char *addr = strtok(strstr(tmp, "Host: ") + 6, "\r\n");
-
-		//---------- Sending/Receiving from Server ----------//
-
-		cout << "Creating a client socket to connect to " << addr << endl;
-		int sendSock;
-		initSock(sendSock, 80, addr, 1); // Creating a sender socket
-
-		strcpy(server_rqstBuffer, client_rqstBuffer);
-		bytesSent = send(sendSock, server_rqstBuffer, HTML_SIZE, 0);
-		if (bytesSent < 0)
-		{
-			cout << "Could not pass on request to host" << endl;
-			exit(1);
-		}
-
-		memset(svr_resBuffer, 0, HTML_SIZE);
-
-		bytesRecv = recv(sendSock, svr_resBuffer, HTML_SIZE, 0);
-		if (bytesRecv < 1)
-		{
-			cout << "Did not get a response from the server" << endl;
-			exit(0);
-		}
-
-		cout << addr << " responded with:" << endl << svr_resBuffer << endl;
-
-		bytesSent = send(clientSock, svr_resBuffer, HTML_SIZE, 0);
-		if(bytesSent < 1)
-		{
-			cout << "Couldn't send message to client" << endl;
-			close(clientSock);
-			exit(0);
-		}
 		close(clientSock);
 	}
 }
