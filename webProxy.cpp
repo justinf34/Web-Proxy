@@ -1,27 +1,34 @@
 #include <iostream>
-#include <string.h>
+
+// Networking related libraries
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <sys/types.h>
+
 #include <unistd.h>
+#include <sys/types.h>
 #include <ctype.h>
 #include <cstring>
+#include <string.h>
+
 #include <signal.h>
 
 using namespace std;
 
 #define PORT 8080
-#define RQST_SIZE 2028
+#define RQST_SIZE 2048
 #define HTML_SIZE 10 * RQST_SIZE
 #define MAX_PENDING 1
 
 int proxySock;
 int clientSock;
 
+char troll_rqst[] = "GET http://pages.cpsc.ucalgary.ca/~carey/CPSC441/trollface.jpg HTTP/1.1\r\nHost: pages.cpsc.uclagary.ca\r\n\r\n";
+
 //Function declarations
 void initSock(int &sock, int portnum = PORT, char *addr = NULL, int mode = 0);
+char *replaceWord(const char *s, const char *oldW, const char *newW);
 
 void cleanExit(int sig)
 {
@@ -32,7 +39,7 @@ void cleanExit(int sig)
 
 int main(int argc, char const *argv[])
 {
-	char client_rqstBuffer[RQST_SIZE], server_rqstBuffer[RQST_SIZE], reply[HTML_SIZE], svr_resBuffer[HTML_SIZE];
+	char client_rqst[RQST_SIZE], proxy_rqst[RQST_SIZE], proxy_res[HTML_SIZE], server_res[HTML_SIZE];
 	char url[RQST_SIZE], hostname[RQST_SIZE], file_path[RQST_SIZE];
 
 	int bytesSent;
@@ -44,78 +51,69 @@ int main(int argc, char const *argv[])
 	//---------- Creating a Listener Socket ----------//
 	initSock(proxySock); // Creates a listener socket and is listening if no error
 
-	while (true)
+	while (1)
 	{
 		cout << "Accepting connections..." << endl;
 		if ((clientSock = accept(proxySock, NULL, NULL)) < 0)
 		{
-			cout << "Could not connect to client" << endl;
+			cout << "Could not connect to incoming client" << endl;
 			exit(-1);
 		}
 
-		memset(&client_rqstBuffer, 0, RQST_SIZE); // clearing the buffer
-		memset(&server_rqstBuffer, 0, RQST_SIZE);
+		memset(&client_rqst, 0, RQST_SIZE);
+		memset(&proxy_rqst, 0, RQST_SIZE);
 
-		int totalMsg = 0;
-		while ((bytesRecv = recv(clientSock, (char *)&client_rqstBuffer, RQST_SIZE, 0)) > 0)
+		while ((bytesRecv = recv(clientSock, (char *)&client_rqst, RQST_SIZE, 0)) > 0)
 		{
-			if (bytesRecv < 1)
+
+			//----------- Checking the for Floppy Images -----------//
+			char *pch = strstr(client_rqst, "\r");
+			int num = client_rqst - pch;
+			char firstLine[(-1 * num) + 1];
+			memcpy(firstLine, client_rqst, -1 * num);
+
+			char *ptr = NULL;
+			if (ptr = strstr(firstLine, "Floppy"))
 			{
-				cout << "Did not receive any message" << endl;
-				exit(1);
+				strcpy(proxy_rqst, troll_rqst);
+			}
+			else
+			{
+				strcpy(proxy_rqst, client_rqst);
 			}
 
-			//----------- Parsing Client Request -----------//
-
-			char tmp[RQST_SIZE];
-			strcpy(tmp, client_rqstBuffer);
-
+			//----------- Finding the host -----------//
 			cout << "Client request:" << endl
-				 << client_rqstBuffer << endl;
+				 << client_rqst << endl;
 
-			char *addr = strtok(strstr(tmp, "Host: ") + 6, "\r\n");
+			char *addr = strtok(strstr(client_rqst, "Host: ") + 6, "\r\n");
 
 			//---------- Sending/Receiving from Server ----------//
 
 			cout << "Creating a client socket to connect to " << addr << endl;
+
 			int sendSock;
 			initSock(sendSock, 80, addr, 1); // Creating a sender socket
 
-			strcpy(server_rqstBuffer, client_rqstBuffer);
-			bytesSent = send(sendSock, server_rqstBuffer, HTML_SIZE, 0);
+			bytesSent = send(sendSock, proxy_rqst, HTML_SIZE, 0);
 			if (bytesSent < 0)
 			{
 				cout << "Could not pass on request to host" << endl;
 				exit(1);
 			}
 
-			memset(&svr_resBuffer, 0, HTML_SIZE);
-			while ((bytesRecv = recv(sendSock, svr_resBuffer, HTML_SIZE, 0)) > 0)
+			memset(&server_res, 0, HTML_SIZE);
+			while ((bytesRecv = recv(sendSock, server_res, HTML_SIZE, 0)) > 0)
 			{
-				if (bytesRecv < 1)
-				{
-					cout << "Did not get a response from the server" << endl;
-					exit(0);
-				}
-
 				cout << addr << " responded with:" << endl
-					 << svr_resBuffer << endl;
+					 << server_res << endl;
 
 				//---------- Editing the response ----------//
-				//	Get the byte size of the message body
-				//	bytesRecv - 390, should point back the start of the message body
-				char editRes[bytesRecv];
-				strcpy(editRes, svr_resBuffer);
-
-				char *msgBody = strstr(editRes, "\r\n\r\n") + 4;
-				cout << "The message body is:" << endl
-					 << msgBody << endl;
-
-				// Floppy -> Trolly
 				char *ptr;
 				char trolly[7] = "Trolly";
-				while (ptr = strstr(msgBody, "Floppy"))
+				while (ptr = strstr(server_res, " Floppy"))
 				{
+					ptr = ptr + 1;
 					int i = 0;
 					for (i = 0; i < 6; i++)
 					{
@@ -125,8 +123,9 @@ int main(int argc, char const *argv[])
 
 				// Italy -> Japan
 				char japan[6] = "Japan";
-				while (ptr = strstr(msgBody, "Italy"))
+				while (ptr = strstr(server_res, " Italy"))
 				{
+					ptr = ptr + 1;
 					int i = 0;
 					for (i = 0; i < 5; i++)
 					{
@@ -135,19 +134,19 @@ int main(int argc, char const *argv[])
 				}
 
 				//---------- Sending the message back to client ----------//
-				bytesSent = send(clientSock, editRes, HTML_SIZE, 0);
+				bcopy(server_res, proxy_res, bytesRecv);
+				bytesSent = send(clientSock, proxy_res, bytesRecv, 0);
 
-				if (bytesSent < 1)
+				if (bytesSent < 0)
 				{
 					cout << "Couldn't send message to client" << endl;
 					close(clientSock);
-					exit(0);
+					exit(-1);
 				}
-				memset(&svr_resBuffer, 0, HTML_SIZE);
+				memset(&server_res, 0, HTML_SIZE);
+				memset(&client_rqst, 0, RQST_SIZE);
+				memset(&proxy_rqst, 0, RQST_SIZE);
 			}
-
-			memset(&client_rqstBuffer, 0, RQST_SIZE);
-			memset(&server_rqstBuffer, 0, RQST_SIZE);
 		}
 
 		close(clientSock);
@@ -222,4 +221,46 @@ void initSock(int &sock, int portnum, char *addr, int mode)
 			exit(-1);
 		}
 	}
+}
+
+char *replaceWord(const char *s, const char *oldW,
+				  const char *newW)
+{
+	char *result;
+	int i, cnt = 0;
+	int newWlen = strlen(newW);
+	int oldWlen = strlen(oldW);
+
+	// Counting the number of times old word
+	// occur in the string
+	for (i = 0; s[i] != '\0'; i++)
+	{
+		if (strstr(&s[i], oldW) == &s[i])
+		{
+			cnt++;
+
+			// Jumping to index after the old word.
+			i += oldWlen - 1;
+		}
+	}
+
+	// Making new string of enough length
+	result = (char *)malloc(i + cnt * (newWlen - oldWlen) + 1);
+
+	i = 0;
+	while (*s)
+	{
+		// compare the substring with the result
+		if (strstr(s, oldW) == s)
+		{
+			strcpy(&result[i], newW);
+			i += newWlen;
+			s += oldWlen;
+		}
+		else
+			result[i++] = *s++;
+	}
+
+	result[i] = '\0';
+	return result;
 }
